@@ -6,12 +6,11 @@ import numpy as np
 from pydantic import BaseModel, Field, computed_field
 import shapely.geometry as sg
 from shapely.geometry.base import BaseGeometry
-from scipy.interpolate import CubicSpline  # Необхідний імпорт для сплайнів
+from scipy.interpolate import CubicSpline
 
-from .calculation import transfer_properties, calculate_vertices_sums
-from .models import Centroid, Vertex, GeometrySums, AreaInertia
-
-TOLERANCE = 1e-9
+from .calculations import transfer_properties, calculate_vertices_sums
+from .models import Vertex, GeometrySums, AreaInertia, TOLERANCE
+from .centroid import Centroid
 
 
 class OperationType(str, Enum):

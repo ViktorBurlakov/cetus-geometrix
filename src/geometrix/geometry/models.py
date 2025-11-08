@@ -1,7 +1,8 @@
-from typing import NamedTuple
-
 import numpy as np
 from pydantic import BaseModel, computed_field, Field
+
+
+TOLERANCE = 1e-9
 
 
 class Vertex(BaseModel):
@@ -60,14 +61,6 @@ class AreaInertia(BaseModel):
             Iy=self.Iy + other.Iy,
             Ixy=self.Ixy + other.Ixy
         )
-
-
-class Centroid(NamedTuple):
-    """Структура для зберігання властивостей фігури відносно її Центроїда (ЦП)."""
-    area: float
-    center: Vertex
-    inertia: AreaInertia
-
 
 
 class StaticMoments(BaseModel):

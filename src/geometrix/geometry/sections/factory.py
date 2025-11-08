@@ -1,6 +1,6 @@
 """## 🛠️ Функції-Конструктори Структурних Профілів (Section Factories)"""
 import math
-from .core import Compound, Rectangle, CircularArc, TOLERANCE
+from geometrix.geometry.core import Compound, Rectangle, CircularArc, TOLERANCE
 
 
 def create_i_beam(

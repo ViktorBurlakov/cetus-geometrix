@@ -1,23 +1,19 @@
 from pydantic import BaseModel, Field, computed_field
 
+from geometrix.geometry.spec import GeometrySpec
 
-class WingProfile(BaseModel):
+
+class WingProfile(GeometrySpec):
     """
     Геометрична модель перерізу крила (порожнистий прямокутник/квадрат - RHS),
     використовувана для обчислення площі та моментів інерції.
 
     Всі розміри в метрах (СІ).
     """
-
-    # --- 1. ВХІДНІ ДАНІ ПРОФІЛЮ ---
-
     B: float = Field(0.05, gt=0, description="Зовнішня ширина профілю (по осі Y)")
     H: float = Field(0.10, gt=0, description="Зовнішня висота профілю (по осі X)")
-
     t_x: float = Field(0.005, gt=0, description="Товщина стінок, паралельних осі Y (горизонтальні полиці)")
     t_y: float = Field(0.005, gt=0, description="Товщина стінок, паралельних осі X (вертикальні стінки)")
-
-    # --- 2. ОБЧИСЛЕННЯ ВНУТРІШНЬОЇ ГЕОМЕТРІЇ ---
 
     @computed_field
     @property

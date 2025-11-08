@@ -1,17 +1,13 @@
 import math
 import numpy as np
 
-from .models import (
+from geometrix.geometry.models import (
     GeometrySums,
     AreaInertia,
     StaticMoments,
-    Centroid,
     PrincipalInertia,
-    RadiiOfGyration  # <-- Нова структура
+    RadiiOfGyration, TOLERANCE
 )
-
-TOLERANCE = 1e-9
-
 
 def calculate_vertices_sums(vertices: np.ndarray) -> GeometrySums:
     """
@@ -58,7 +54,8 @@ def calculate_vertices_sums(vertices: np.ndarray) -> GeometrySums:
 
 
 def transfer_properties(
-        data: Centroid,
+        area: float,
+        inertia: AreaInertia,
         dx: float,
         dy: float,
         reverted: bool = False
@@ -78,12 +75,12 @@ def transfer_properties(
 
     :return: Об'єкт GeometrySums, що містить нові моменти інерції.
     """
-    A = data.area
+    A = area
     sign = -1.0 if reverted else 1.0
 
-    Ix_init = data.inertia.Ix
-    Iy_init = data.inertia.Iy
-    Ixy_init = data.inertia.Ixy
+    Ix_init = inertia.Ix
+    Iy_init = inertia.Iy
+    Ixy_init = inertia.Ixy
 
     # Теорема Штейнера
     Ix_new = Ix_init + sign * A * dy ** 2

@@ -1,4 +1,4 @@
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, computed_field
 
 
 class Material(BaseModel):
@@ -13,3 +13,12 @@ class Material(BaseModel):
 
     class Config:
         frozen = True
+
+    @computed_field
+    @property
+    def shear_modulus(self) -> float:
+        """
+        Обчислює **модуль зсуву** (G) за законом Гука для ізотропних матеріалів.
+        Формула: G = E / (2 * (1 + nu)).
+        """
+        return self.E / (2.0 * (1.0 + self.nu))
