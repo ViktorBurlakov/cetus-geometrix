@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-from engine.geometry.models import (
+from .models import (
     GeometrySums,
     AreaInertia,
     StaticMoments,

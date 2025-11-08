@@ -1,4 +1,3 @@
-# Додаток до файлу geometry/models.py
 from pydantic import Field, BaseModel
 
 

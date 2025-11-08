@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field, computed_field
 
-from engine.geometry.core import GeometryObject
-from engine.material import Material
-from engine.geometry.calculation import calculate_principal_axes, calculate_radii_of_gyration
-from engine.geometry.models import AreaInertia, PrincipalInertia, RadiiOfGyration, Vertex
+from geometrix.geometry.core import GeometryObject
+from geometrix.material import Material
+from geometrix.geometry.calculation import calculate_principal_axes, calculate_radii_of_gyration
+from geometrix.geometry.models import AreaInertia, PrincipalInertia, RadiiOfGyration, Vertex
 
 
 class StructuralElement(BaseModel):

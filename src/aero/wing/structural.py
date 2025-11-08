@@ -1,14 +1,15 @@
 from pydantic import Field, computed_field
 
-from engine.structural.element import StructuralElement
+from aero.wing.profile import WingProfile
+from geometrix.structural.element import StructuralElement
 
 
-class WingStructuralElement(StructuralElement):
+class Wing(StructuralElement):
     """
     Інженерний елемент, спеціалізований для крила.
     Поєднує профіль, матеріал і довжину.
     """
-    profile: WingProfile
+    geometry: WingProfile
     r_offset: float = Field(0.0125, description="Відстань між центром мас та віссю зсуву (r) [м].")
     section_count: int = Field(description="Кількість секцій (N)")
     delta_x: float = Field(description="Довжина однієї секції (Delta_Z) [м]")

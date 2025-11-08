@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import Callable
 
-from engine.geometry.core import GeometryObject
-from engine.geometry.sections import create_i_beam, create_c_channel, create_l_section, create_box_section
+from geometrix.geometry.core import GeometryObject
+from geometrix.geometry.sections import create_i_beam, create_c_channel, create_l_section, create_box_section
 
 
 class GeometryModel(BaseModel):
