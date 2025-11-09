@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, computed_field
 
+
 class Material(BaseModel):
     """
     Data model for an engineering material, encapsulating fundamental physical constants.

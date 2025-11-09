@@ -1,18 +1,6 @@
-import numpy as np
-from pydantic import Field, BaseModel # For type hinting and base models
-from typing import Literal
-
-# Assuming these are defined elsewhere in geometrix.material.models and geometrix.geometry
+from geometrix.geometry.models import InertiaTensor
 from geometrix.material.models import Material
-# Placeholder for InertiaTensor, as it's not defined in the provided code
-class InertiaTensor(BaseModel):
-    I_xx: float = 0.0
-    I_yy: float = 0.0
-    I_zz: float = 0.0 # Often used as J_torsion for simple cases
-    J_torsion: float = 0.0 # Actual torsional constant
-    # ... other inertia components
 
-# Assuming ShearAreas and StiffnessProperties are defined in geometrix.structural.common.properties
 from geometrix.structural.common.properties import ShearAreas, StiffnessProperties
 
 
