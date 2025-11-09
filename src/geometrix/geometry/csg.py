@@ -5,60 +5,107 @@ import shapely.geometry as sg
 from shapely.geometry.base import BaseGeometry
 import numpy as np
 
-from geometrix.geometry.gobject import Centroid
-from geometrix.geometry.models import GeometrySums, Vertex, TOLERANCE, OperationType
-from geometrix.geometry.calculations import transfer_properties, calculate_vertices_sums
+from geometrix.geometry.centroid import Centroid
+from geometrix.geometry.models import GeometrySums, OperationType, TOLERANCE, Vertex
+from geometrix.geometry.calculations import calculate_vertices_sums, transfer_properties
 
+
+def _calculate_sums_from_shapely(shapely_geometry: BaseGeometry) -> GeometrySums:
+    """
+    Helper function to calculate aggregate geometric sums (Area, S, I)
+    by integrating over the contour of the provided Shapely geometry object.
+
+    This handles MultiPolygons and Polygons with holes.
+    """
+    total_sums = GeometrySums()
+
+    # 1. Normalize geometry to a list of Polygons
+    polygons: list[sg.Polygon] = []
+    if isinstance(shapely_geometry, sg.MultiPolygon):
+        polygons.extend(list(shapely_geometry.geoms))
+    elif isinstance(shapely_geometry, sg.Polygon):
+        polygons.append(shapely_geometry)
+    else:
+        # Result is an empty geometry, point, or line (zero area)
+        return total_sums
+
+    # 2. Integrate each Polygon (exterior + holes)
+    for poly in polygons:
+        # Add outer boundary sums
+        total_sums += calculate_vertices_sums(np.array(poly.exterior.coords))
+
+        # Subtract hole sums (by reversing the order of vertices)
+        for interior in poly.interiors:
+            interior_coords = np.array(interior.coords)
+            total_sums += calculate_vertices_sums(interior_coords[::-1])  # Subtraction via reversed order
+
+    return total_sums
+
+
+# --- Base CSG Operation ---
 
 class CSGOperation(BaseModel, ABC):
     """
-    Абстрактна база для всіх булевих операцій у CSG-дереві.
-    Визначає, як виконувати Shapely-операції та як обчислювати геометричні властивості
-    фінального об'єкта.
+    Abstract base class for all Boolean operations (Union, Difference, Intersection)
+    in the Constructive Solid Geometry (CSG) tree.
+
+    This class defines the interface for two critical tasks:
+    1. Executing the Boolean operation using the Shapely library.
+    2. Calculating the final aggregate geometric sums (Area, S, I) based on
+       the result of the operation.
     """
-    op_type: OperationType = Field(..., frozen=True)
+    op_type: OperationType = Field(..., frozen=True,
+                                   description="The type of the CSG operation (e.g., UNION, DIFFERENCE).")
+
+    class Config:
+        frozen = True
+        arbitrary_types_allowed = True
 
     @abstractmethod
     def execute_shapely(self, left_geom: BaseGeometry, right_geom: BaseGeometry) -> BaseGeometry:
-        """Виконує булеву операцію над двома Shapely-об'єктами."""
+        """
+        [ABSTRACT] Executes the core Boolean operation on two Shapely geometry objects.
+        """
         pass
 
     @abstractmethod
     def calculate_sums(
-        self,
-        left_obj: 'GeometryObject2D',
-        right_obj: 'GeometryObject2D',
-        final_shapely_geometry: BaseGeometry
+            self,
+            left_obj: 'GeometryObject2D',
+            right_obj: 'GeometryObject2D',
+            shapely_geometry: BaseGeometry
     ) -> GeometrySums:
         """
-        Обчислює геометричні суми фінального об'єкта.
-        Логіка залежить від типу операції та може використовувати `final_shapely_geometry`.
+        [ABSTRACT] Calculates the aggregate geometric sums of the final object.
+
+        The shapely_geometry parameter represents the result of the Shapely operation
+        and is used for robust contour integration.
         """
         pass
 
     def calculate_centroid(
-        self,
-        left_obj: 'GeometryObject2D',
-        right_obj: 'GeometryObject2D',
-        shapely_geometry: BaseGeometry
+            self,
+            left_obj: 'GeometryObject2D',
+            right_obj: 'GeometryObject2D',
+            shapely_geometry: BaseGeometry
     ) -> Centroid:
         """
-        Обчислює центроїд фінального об'єкта.
-        Цей метод використовує `calculate_sums` для отримання об'єднаних сум, а потім
-        перераховує центроїд.
+        Calculates the centroid based on the final geometric sums.
+
+        This method is generally non-abstract as the centroid is always derived
+        from the calculated sums using a standard formula (c = S / A).
         """
-        # Спочатку отримуємо суми, використовуючи метод операції
         total_sums = self.calculate_sums(left_obj, right_obj, shapely_geometry)
 
-        # Якщо площа нульова, повертаємо порожній центроїд
-        if abs(total_sums.plane_area) < TOLERANCE.AREA_CALC: # Використовуємо TOLERANCE
-            return Centroid()
+        # If the area is zero, return an empty centroid
+        if abs(total_sums.plane_area) < TOLERANCE.AREA_CALC:
+            return Centroid()  # Assumes Centroid() returns an object with zeroed properties
 
-        # Визначаємо новий глобальний центр мас
+        # Determine the new global center of mass
         cx_new = total_sums.static_moments.Sy / total_sums.plane_area
         cy_new = total_sums.static_moments.Sx / total_sums.plane_area
 
-        # Переносимо моменти інерції до нового глобального центру мас (зворотний хід Штейнера)
+        # Transfer moments of inertia to the new global center of mass (reverse Steiner's theorem)
         centroidal_inertia_c = transfer_properties(
             area=total_sums.plane_area,
             inertia=total_sums.inertia,
@@ -75,70 +122,68 @@ class CSGOperation(BaseModel, ABC):
 
 
 class UnionOperation(CSGOperation):
-    op_type: OperationType = Field(OperationType.UNION, literal=True)
+    """Implements the CSG UNION operation (Addition: A + B)."""
 
     def execute_shapely(self, left_geom: BaseGeometry, right_geom: BaseGeometry) -> BaseGeometry:
+        """Performs Shapely's union operation."""
         return left_geom.union(right_geom)
 
-    def calculate_sums(
-        self,
-        left_obj: 'GeometryObject2D',
-        right_obj: 'GeometryObject2D',
-        final_shapely_geometry: BaseGeometry
+    def calculate_sums(self,
+            left_obj: 'GeometryObject2D',
+            right_obj: 'GeometryObject2D',
+            shapely_geometry: BaseGeometry
     ) -> GeometrySums:
-        # Для об'єднання суми просто додаються
-        return left_obj.sums + right_obj.sums
+        """
+        Calculates sums robustly by integrating the final Shapely geometry contour.
+        """
+        return _calculate_sums_from_shapely(shapely_geometry)
 
 
 class DifferenceOperation(CSGOperation):
-    op_type: OperationType = Field(OperationType.DIFFERENCE, literal=True)
+    """Implements the CSG DIFFERENCE operation (Subtraction: A - B, where B is a cutout/hole)."""
 
     def execute_shapely(self, left_geom: BaseGeometry, right_geom: BaseGeometry) -> BaseGeometry:
+        """Performs Shapely's difference operation."""
         return left_geom.difference(right_geom)
 
     def calculate_sums(
-        self,
-        left_obj: 'GeometryObject2D',
-        right_obj: 'GeometryObject2D',
-        final_shapely_geometry: BaseGeometry
+            self,
+            left_obj: 'GeometryObject2D',
+            right_obj: 'GeometryObject2D',
+            shapely_geometry: BaseGeometry
     ) -> GeometrySums:
-        # Для віднімання суми віднімаються
-        return left_obj.sums - right_obj.sums
+        """
+        Calculates sums robustly by integrating the final Shapely geometry contour.
+        """
+        return _calculate_sums_from_shapely(shapely_geometry)
 
 
 class IntersectionOperation(CSGOperation):
-    op_type: OperationType = Field(OperationType.INTERSECTION, literal=True)
+    """Implements the CSG INTERSECTION operation (Multiplication: A * B)."""
 
     def execute_shapely(self, left_geom: BaseGeometry, right_geom: BaseGeometry) -> BaseGeometry:
+        """Performs Shapely's intersection operation."""
         return left_geom.intersection(right_geom)
 
     def calculate_sums(
-        self,
-        left_obj: 'GeometryObject2D',
-        right_obj: 'GeometryObject2D',
-        final_shapely_geometry: BaseGeometry
+            self,
+            left_obj: 'GeometryObject2D',
+            right_obj: 'GeometryObject2D',
+            shapely_geometry: BaseGeometry
     ) -> GeometrySums:
-        # Для перетину: ми ПОВИННІ обчислити суми з фінальної shapely_geometry.
-        total_sums = GeometrySums()
+        """
+        Calculates sums robustly by integrating the final Shapely geometry contour.
+        """
+        return _calculate_sums_from_shapely(shapely_geometry)
 
-        polygons: list[sg.Polygon] = []
-        if isinstance(final_shapely_geometry, sg.MultiPolygon):
-            polygons.extend(list(final_shapely_geometry.geoms))
-        elif isinstance(final_shapely_geometry, sg.Polygon):
-            polygons.append(final_shapely_geometry)
-        else:
-            return total_sums
 
-        for poly in polygons:
-            total_sums += calculate_vertices_sums(np.array(poly.exterior.coords))
-            for interior in poly.interiors:
-                interior_coords = np.array(interior.coords)
-                total_sums += calculate_vertices_sums(interior_coords[::-1])
+# --- Factory Function ---
 
-        return total_sums
-
-# Фабрична функція для зручного створення об'єктів операцій
 def create_operation(op_type: OperationType) -> CSGOperation:
+    """
+    Factory function to instantiate the correct concrete CSG operation object
+    based on the specified operation type.
+    """
     if op_type == OperationType.UNION:
         return UnionOperation(op_type=op_type)
     elif op_type == OperationType.DIFFERENCE:
@@ -146,4 +191,4 @@ def create_operation(op_type: OperationType) -> CSGOperation:
     elif op_type == OperationType.INTERSECTION:
         return IntersectionOperation(op_type=op_type)
     else:
-        raise ValueError(f"Unknown operation type: {op_type}")
+        raise ValueError(f"Unknown CSG operation type: {op_type}")

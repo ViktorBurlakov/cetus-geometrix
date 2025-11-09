@@ -8,9 +8,10 @@ from shapely.geometry.base import BaseGeometry
 from scipy.interpolate import CubicSpline
 
 from geometrix.geometry.calculations import transfer_properties, calculate_vertices_sums
-from geometrix.geometry.gobject import GeometryObject, Centroid  # Базовий клас
+from geometrix.geometry.gobject import GeometryObject, Centroid
 from geometrix.geometry.models import Vertex, InertiaTensor, TOLERANCE, GeometrySums, OperationType
-from geometrix.geometry.csg_operations import CSGOperation, create_operation
+from geometrix.geometry.csg import CSGOperation, create_operation
+
 
 class GeometryObject2D(GeometryObject, ABC):
     """

@@ -1,42 +1,50 @@
 from enum import Enum
-
 import numpy as np
 from pydantic import BaseModel, Field, computed_field
 
 
 class TOLERANCE:
-    """Глобальна точність для порівнянь з плаваючою комою."""
-    AREA_CALC = 1e-9  # Для перевірки поділу на нуль при обчисленні ЦМ
-    GEOMETRY = 1e-6   # Загальна точність для геометричних порівнянь
+    """
+    Global tolerance constants used for floating-point comparisons within the geometry module.
+    """
+    AREA_CALC = 1e-9  # Tolerance for checking division by zero (e.g., when calculating centroid)
+    GEOMETRY = 1e-6  # General tolerance for geometric comparisons
 
 
 class OperationType(str, Enum):
-    """Типи булевих операцій, що зберігаються у вузлах CSG-дерева."""
-    UNION = "UNION"  # Об'єднання (+)
-    DIFFERENCE = "DIFFERENCE"  # Віднімання (-)
-    INTERSECTION = "INTERSECTION"  # Перетин (*)
-    PRIMITIVE = "PRIMITIVE"  # Для листових вузлів (Rectangle, Circle, Polygon, BSpline)
-    COMPOUND = "COMPOUND"  # Для вузлів CSG-дерева, що представляють комбінацію
+    """
+    Types of Boolean operations used in Constructive Solid Geometry (CSG) nodes.
+    """
+    UNION = "UNION"  # Union operation (+)
+    DIFFERENCE = "DIFFERENCE"  # Difference operation (-)
+    INTERSECTION = "INTERSECTION"  # Intersection operation (*)
+    PRIMITIVE = "PRIMITIVE"  # For leaf nodes (Rectangle, Circle, Polygon, BSpline)
+    COMPOUND = "COMPOUND"  # For CSG tree nodes representing a combination
 
 
 class Vertex(BaseModel):
-    """Універсальна 3D/2D координата."""
-    x: float = Field(0.0, description="X-координата (м).")
-    y: float = Field(0.0, description="Y-координата (м).")
-    z: float = Field(0.0, description="Z-координата (м). Для 2D: 0.0.")
+    """
+    Represents a universal 3D/2D coordinate point.
+    In 2D contexts, the z-coordinate is typically 0.0.
+    """
+    x: float = Field(0.0, description="X-coordinate [m].")
+    y: float = Field(0.0, description="Y-coordinate [m].")
+    z: float = Field(0.0, description="Z-coordinate [m]. Default is 0.0 for 2D geometry.")
 
     class Config:
         frozen = True
 
 
 class BoundingBox(BaseModel):
-    """Універсальна модель обмежувальної коробки (Bounding Box) для 2D/3D."""
+    """
+    Universal model for a Bounding Box in 2D or 3D space.
+    """
     min_x: float
     max_x: float
     min_y: float
     max_y: float
-    min_z: float = Field(0.0)
-    max_z: float = Field(0.0)
+    min_z: float = Field(0.0, description="Minimum Z-coordinate [m].")
+    max_z: float = Field(0.0, description="Maximum Z-coordinate [m].")
 
     class Config:
         frozen = True
@@ -44,34 +52,37 @@ class BoundingBox(BaseModel):
     @computed_field
     @property
     def width(self):
+        """Width of the bounding box (Max X - Min X) [m]."""
         return self.max_x - self.min_x
 
     @computed_field
     @property
     def height(self):
+        """Height of the bounding box (Max Y - Min Y) [m]."""
         return self.max_y - self.min_y
 
     @computed_field
     @property
     def depth(self):
-        """Для 3D: глибина (по осі Z). Для 2D: 0.0."""
+        """Depth of the bounding box (Max Z - Min Z) [m]. For 2D, this is 0.0."""
         return self.max_z - self.min_z
 
 
 class StaticMoments(BaseModel):
     """
-    Універсальні Статичні Моменти (Sx, Sy, Sz).
-    2D: Моменти Площі; 3D: Моменти Об'єму/Маси.
+    Universal Static Moments (Sx, Sy, Sz) relative to the global origin (0,0,0).
+    In 2D (Area): Area Static Moments. In 3D (Volume/Mass): Volume or Mass Static Moments.
+    These are the moments of the first order, crucial for centroid calculation.
     """
-    Sx: float = Field(0.0)  # Статичний момент відносно осі X (Sx_0)
-    Sy: float = Field(0.0)  # Статичний момент відносно осі Y (Sy_0)
-    Sz: float = Field(0.0)  # Статичний момент відносно осі Z (Sz_0). Для 2D: 0.0.
+    Sx: float = Field(0.0, description="Static moment with respect to the X-axis ($S_{y0}$) [m^3 or kg*m].")
+    Sy: float = Field(0.0, description="Static moment with respect to the Y-axis ($S_{x0}$) [m^3 or kg*m].")
+    Sz: float = Field(0.0, description="Static moment with respect to the Z-axis ($S_{z0}$) [m^3 or kg*m]. 0.0 for 2D.")
 
     class Config:
         frozen = True
 
     def __add__(self, other: 'StaticMoments') -> 'StaticMoments':
-        """Реалізує оператор додавання для агрегування."""
+        """Implements the addition operator for aggregation (CSG UNION)."""
         if not isinstance(other, StaticMoments):
             return NotImplemented
         return StaticMoments(
@@ -81,7 +92,7 @@ class StaticMoments(BaseModel):
         )
 
     def __sub__(self, other: 'StaticMoments') -> 'StaticMoments':
-        """Реалізує оператор віднімання (для отворів/вирізів)."""
+        """Implements the subtraction operator (for holes/cutouts - CSG DIFFERENCE)."""
         if not isinstance(other, StaticMoments):
             return NotImplemented
         return StaticMoments(
@@ -93,34 +104,39 @@ class StaticMoments(BaseModel):
 
 class InertiaTensor(BaseModel):
     """
-    Універсальний Тензор Інерції (2D: Площа, 3D: Маса/Об'єм).
-    Використовує 6 незалежних компонент (симетрична 3x3 матриця).
+    Universal Inertia Tensor (2D: Area, 3D: Mass/Volume) relative to the global origin (0,0,0).
+    Uses 6 independent components (symmetric 3x3 matrix) for moments and products of inertia.
     """
-    # Моменти інерції (діагональні)
-    Ixx: float = Field(0.0, description="Момент відносно осі X. У 2D: Ix.")
-    Iyy: float = Field(0.0, description="Момент відносно осі Y. У 2D: Iy.")
-    Izz: float = Field(0.0, description="Момент відносно осі Z (Полярний момент). У 2D: 0.0.")
+    # Moments of Inertia (Diagonal components)
+    Ixx: float = Field(0.0, description="Moment of inertia about the X-axis ($I_{x0}$) [m^4 or kg*m^2].")
+    Iyy: float = Field(0.0, description="Moment of inertia about the Y-axis ($I_{y0}$) [m^4 or kg*m^2].")
+    Izz: float = Field(0.0,
+                       description="Moment of inertia about the Z-axis ($I_{z0}$) / Polar moment in 2D [m^4 or kg*m^2].")
 
-    # Добутки інерції (недіагональні)
-    Ixy: float = Field(0.0, description="Добуток інерції Ixy. У 2D: Ixy.")
-    Ixz: float = Field(0.0, description="Добуток інерції Ixz. У 2D: 0.0.")
-    Iyz: float = Field(0.0, description="Добуток інерції Iyz. У 2D: 0.0.")
+    # Products of Inertia (Off-diagonal components)
+    Ixy: float = Field(0.0, description="Product of inertia $I_{xy}$ [m^4 or kg*m^2].")
+    Ixz: float = Field(0.0, description="Product of inertia $I_{xz}$. 0.0 in 2D geometry [m^4 or kg*m^2].")
+    Iyz: float = Field(0.0, description="Product of inertia $I_{yz}$. 0.0 in 2D geometry [m^4 or kg*m^2].")
 
-    J_torsion: float | None = Field(None, description="Константа кручення (J). Використовується для GJ_torsion.")
+    J_torsion: float | None = Field(None,
+                                    description="Torsional constant ($J$). Used for $GJ_{torsion}$ calculation. [m^4].")
 
     class Config:
         frozen = True
 
     def ndarray(self, dim: int = 3) -> np.ndarray:
-        """Повертає компоненти тензора як матрицю NumPy 2x2 або 3x3."""
+        """
+        Returns the tensor components as a NumPy 2x2 (Area) or 3x3 (Mass/Volume) matrix.
+        Note: Products of inertia are stored as negative in the matrix for standard tensor convention.
+        """
         if dim == 2:
-            # 2D випадок (площа)
+            # 2D case (Area)
             return np.array([
                 [self.Ixx, -self.Ixy],
                 [-self.Ixy, self.Iyy]
             ], dtype=np.float64)
         else:
-            # 3D випадок (маса/об'єм)
+            # 3D case (Mass/Volume)
             return np.array([
                 [self.Ixx, -self.Ixy, -self.Ixz],
                 [-self.Ixy, self.Iyy, -self.Iyz],
@@ -131,43 +147,54 @@ class InertiaTensor(BaseModel):
     @property
     def I_polar(self) -> float:
         """
-        Полярний момент інерції (J_polar) [м^4].
-        Дорівнює сумі моментів у площині XY.
+        Polar Moment of Inertia ($I_p$ or $J_{polar}$) [m^4 or kg*m^2].
+        Equal to the sum of the moments in the XY-plane ($I_{xx} + I_{yy}$).
         """
         return self.Ixx + self.Iyy
 
     def __add__(self, other: 'InertiaTensor') -> 'InertiaTensor':
-        """Додає два тензори (для агрегування)."""
+        """Adds two tensors (for aggregation - CSG UNION)."""
         if not isinstance(other, InertiaTensor):
-            raise TypeError("Можна додавати лише InertiaTensor.")
+            raise TypeError("Only InertiaTensor can be added.")
+
+        j_self = self.J_torsion if self.J_torsion is not None else 0.0
+        j_other = other.J_torsion if other.J_torsion is not None else 0.0
+
         return InertiaTensor(
             Ixx=self.Ixx + other.Ixx, Iyy=self.Iyy + other.Iyy, Izz=self.Izz + other.Izz,
             Ixy=self.Ixy + other.Ixy, Ixz=self.Ixz + other.Ixz, Iyz=self.Iyz + other.Iyz,
-            J_torsion=self.J_torsion + other.J_torsion  # Додаємо J_torsion
+            J_torsion=j_self + j_other
         )
 
     def __sub__(self, other: 'InertiaTensor') -> 'InertiaTensor':
-        """Віднімає два тензори (для отворів/вирізів)."""
+        """Subtracts one tensor from another (for holes/cutouts - CSG DIFFERENCE)."""
         if not isinstance(other, InertiaTensor):
-            raise TypeError("Можна віднімати лише InertiaTensor.")
+            raise TypeError("Only InertiaTensor can be subtracted.")
+
+        j_self = self.J_torsion if self.J_torsion is not None else 0.0
+        j_other = other.J_torsion if other.J_torsion is not None else 0.0
+
         return InertiaTensor(
             Ixx=self.Ixx - other.Ixx, Iyy=self.Iyy - other.Iyy, Izz=self.Izz - other.Izz,
             Ixy=self.Ixy - other.Ixy, Ixz=self.Ixz - other.Ixz, Iyz=self.Iyz - other.Iyz,
-            J_torsion=self.J_torsion - other.J_torsion  # Віднімаємо J_torsion
+            J_torsion=j_self - j_other
         )
 
 
 class GeometrySums(BaseModel):
     """
-    Універсальна Модель для сирих геометричних сум I_0 відносно глобального початку (0,0).
-    Включає площу перерізу, об'єм та площу поверхні.
-    """
-    plane_area: float = Field(0.0, description="Площа перерізу (2D), інакше 0.0.")
-    volume: float = Field(0.0, description="Об'єм тіла (3D), інакше 0.0.")
-    surface_area: float = Field(0.0, description="Площа поверхні тіла (3D), інакше 0.0.")
+    Universal Model for raw geometric sums (I_0) relative to the global origin (0,0,0).
+    It aggregates primary measures (Area/Volume) and first/second order moments.
 
-    static_moments: StaticMoments
-    inertia: InertiaTensor
+    These values are the result of raw integration before translation to the
+    centroidal axes using the Parallel Axis Theorem (Steiner's Theorem).
+    """
+    plane_area: float = Field(0.0, description="Cross-sectional area [m^2]. 0.0 for pure 3D volume.")
+    volume: float = Field(0.0, description="Volume of the solid [m^3]. 0.0 for pure 2D cross-section.")
+    surface_area: float = Field(0.0, description="Surface area of the solid [m^2]. 0.0 for 2D cross-section.")
+
+    static_moments: StaticMoments = Field(description="First order moments (Static Moments) relative to the origin.")
+    inertia: InertiaTensor = Field(description="Second order moments (Inertia Tensor) relative to the origin.")
 
     class Config:
         frozen = True
@@ -175,11 +202,11 @@ class GeometrySums(BaseModel):
     @computed_field
     @property
     def primary_measure(self) -> float:
-        """Повертає основну ненульову міру (Площа перерізу або Об'єм)."""
-        return self.plane_area if self.plane_area > TOLERANCE else self.volume
+        """Returns the primary non-zero measure (Cross-Sectional Area or Volume)."""
+        return self.plane_area if self.plane_area > TOLERANCE.AREA_CALC else self.volume
 
     def __add__(self, other: 'GeometrySums') -> 'GeometrySums':
-        """Реалізує оператор додавання для агрегування (об'єднання)."""
+        """Implements the addition operator for aggregation (CSG UNION)."""
         if not isinstance(other, GeometrySums):
             return NotImplemented
         return GeometrySums(
@@ -191,7 +218,7 @@ class GeometrySums(BaseModel):
         )
 
     def __sub__(self, other: 'GeometrySums') -> 'GeometrySums':
-        """Реалізує оператор віднімання (для отворів/вирізів)."""
+        """Implements the subtraction operator (for holes/cutouts - CSG DIFFERENCE)."""
         if not isinstance(other, GeometrySums):
             return NotImplemented
         return GeometrySums(
@@ -205,11 +232,12 @@ class GeometrySums(BaseModel):
 
 class PrincipalInertia(BaseModel):
     """
-    Модель для головних моментів інерції та кута повороту (зазвичай 2D).
+    Model for Principal Moments of Inertia and the angle of rotation (typically 2D area properties).
+    These moments represent the maximum and minimum inertia values in the plane.
     """
-    I1: float = Field(0.0)  # Головний момент інерції (максимальний)
-    I2: float = Field(0.0)  # Головний момент інерції (мінімальний)
-    alpha: float = Field(0.0)  # Кут повороту (в радіанах) від осі X до осі I1
+    I1: float = Field(0.0, description="First (Maximum) Principal Moment of Inertia [m^4 or kg*m^2].")
+    I2: float = Field(0.0, description="Second (Minimum) Principal Moment of Inertia [m^4 or kg*m^2].")
+    alpha: float = Field(0.0, description="Angle of rotation (in radians) from the local X-axis to the $I_1$ axis.")
 
     class Config:
         frozen = True
@@ -217,12 +245,13 @@ class PrincipalInertia(BaseModel):
 
 class RadiiOfGyration(BaseModel):
     """
-    Модель для радіусів інерції перерізу (зазвичай 2D).
+    Model for the Radii of Gyration of a cross-section or 3D solid relative to centroidal axes.
+    The radius of gyration is a measure of how the mass/area is distributed around an axis.
     """
-    rx: float = Field(0.0)  # Радіус інерції відносно центроїдальної осі X
-    ry: float = Field(0.0)  # Радіус інерції відносно центроїдальної осі Y
-    r1: float = Field(0.0)  # Радіус інерції відносно головної осі 1 (максимальний)
-    r2: float = Field(0.0)  # Радіус інерції відносно головної осі 2 (мінімальний)
+    rx: float = Field(0.0, description="Radius of gyration relative to the centroidal X-axis ($r_x$) [m].")
+    ry: float = Field(0.0, description="Radius of gyration relative to the centroidal Y-axis ($r_y$) [m].")
+    r1: float = Field(0.0, description="Radius of gyration relative to the Principal Axis 1 (Maximum) ($r_1$) [m].")
+    r2: float = Field(0.0, description="Radius of gyration relative to the Principal Axis 2 (Minimum) ($r_2$) [m].")
 
     class Config:
         frozen = True

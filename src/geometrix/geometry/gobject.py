@@ -1,21 +1,28 @@
 from abc import ABC, abstractmethod
 from typing import TypeVar, Generic
 
-import numpy as np
 from pydantic import BaseModel, Field, computed_field
 
 from geometrix.geometry.centroid import Centroid
 from geometrix.geometry.models import TOLERANCE, GeometrySums, OperationType
+
 
 T = TypeVar('T', bound='GeometryObject')
 
 
 class GeometryObject(BaseModel, ABC, Generic[T]):
     """
-    Абстрактний базовий інтерфейс для всіх геометричних об'єктів (2D та 3D).
-    Кожен об'єкт є вузлом у CSG-дереві (хоча для 3D CSG може бути окрема ієрархія).
+    Abstract base interface for all geometric objects (2D and 3D).
+
+    Every object acts as a node in the Constructive Solid Geometry (CSG) tree.
+    This class defines the fundamental abstract methods for calculating geometric
+    properties and provides base implementations for centroid calculation.
     """
-    op_type: OperationType = Field(OperationType.PRIMITIVE, frozen=True)
+    op_type: OperationType = Field(
+        OperationType.PRIMITIVE,
+        frozen=True,
+        description="The type of CSG operation represented by this node (e.g., PRIMITIVE, UNION, DIFFERENCE)."
+    )
 
     class Config:
         arbitrary_types_allowed = True
@@ -26,8 +33,11 @@ class GeometryObject(BaseModel, ABC, Generic[T]):
     @abstractmethod
     def sums(self) -> GeometrySums:
         """
-        [ABSTRACT] Повертає агреговані геометричні суми (площа/об'єм,
-        статичні моменти, моменти інерції) об'єкта відносно ГЛОБАЛЬНОГО початку координат (0,0,0).
+        [ABSTRACT] Returns the aggregated raw geometric sums (area/volume,
+        static moments, moments of inertia) of the object relative to the
+        GLOBAL coordinate origin (0,0,0).
+
+        This property is the foundation for all further centroidal calculations.
         """
         pass
 
@@ -36,99 +46,88 @@ class GeometryObject(BaseModel, ABC, Generic[T]):
     @abstractmethod
     def centroid(self) -> Centroid:
         """
-        [ABSTRACT] Повертає об'єкт Centroid, що містить центр мас/центроїд
-        та моменти інерції ВІДНОСНО цього центру.
+        [ABSTRACT] Returns the Centroid object, which contains the center of mass/centroid
+        coordinates and the moments of inertia RELATIVE to this centroid.
         """
         pass
 
     @computed_field
     @property
     @abstractmethod
-    def vertices(self) -> np.ndarray: # np.ndarray для гнучкості (2D [N,2] або 3D [N,3])
-        """
-        [ABSTRACT] Повертає список вершин, що визначають зовнішній контур
-        (або апроксимацію) об'єкта.
-        """
-        pass
-
-    @computed_field
-    @property
-    @abstractmethod
-    def plane_area(self) -> float:
-        """
-        [ABSTRACT] Повертає площу 2D перерізу об'єкта. Для 3D тіл це 0.0,
-        якщо тіло не є плоским об'єктом.
-        """
-        pass
-
-    @computed_field
-    @property
-    @abstractmethod
-    def volume(self) -> float:
-        """
-        [ABSTRACT] Повертає об'єм 3D об'єкта. Для 2D перерізів це 0.0.
-        """
-        pass
-
-    @computed_field
-    @property
-    @abstractmethod
-    def surface_area(self) -> float:
-        """
-        [ABSTRACT] Повертає площу поверхні 3D об'єкта. Для 2D перерізів це 0.0.
-        """
-        pass
-
-    @computed_field
-    @property
     def primary_measure(self) -> float:
         """
-        Повертає основну міру об'єкта (площу для 2D, об'єм для 3D).
-        Залежить від конкретної реалізації.
+        [ABSTRACT] Returns the object's primary measure: cross-sectional area (2D) or volume (3D).
         """
-        # ✅ Використання TOLERANCE для безпечного порівняння з нулем
-        if self.volume > TOLERANCE.AREA_CALC:
-            return self.volume
-        return self.plane_area
+        pass
 
     @abstractmethod
     def translate(self: T, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> T:
         """
-        [ABSTRACT] Переміщує геометричний об'єкт на задані відхилення.
-        Повертає новий об'єкт (immutable).
+        [ABSTRACT] Translates the geometric object by the specified offsets (dx, dy, dz).
+        Returns a new, translated, immutable object instance.
+
+        Args:
+            dx (float): Displacement along the X-axis [m].
+            dy (float): Displacement along the Y-axis [m].
+            dz (float): Displacement along the Z-axis [m].
+
+        Returns:
+            T: A new instance of the geometric object at the translated location.
         """
         pass
 
-    # Булеві оператори, які можуть бути перевизначені в похідних класах (наприклад, GeometryObject2D)
+    # Boolean Operators
     def __add__(self: T, other: 'GeometryObject') -> 'GeometryObject':
+        """
+        Implements the addition operator for CSG UNION.
+        This method should be overridden in concrete geometric classes (e.g., GeometryObject2D).
+        """
         return NotImplemented
 
     def __sub__(self: T, other: 'GeometryObject') -> 'GeometryObject':
+        """
+        Implements the subtraction operator for CSG DIFFERENCE (cutouts/holes).
+        This method should be overridden in concrete geometric classes.
+        """
         return NotImplemented
 
     def __mul__(self: T, other: 'GeometryObject') -> 'GeometryObject':
+        """
+        Implements the multiplication operator for CSG INTERSECTION.
+        This method should be overridden in concrete geometric classes.
+        """
         return NotImplemented
 
     @computed_field
     @property
     def cx(self) -> float:
-        """X-координата фінального центроїда (Sy_0 / Primary_Measure)."""
+        """
+        X-coordinate of the final centroid (calculated from Sy_0 / Primary_Measure).
+        """
         sums = self.sums
         measure = self.primary_measure
+        # Centroid X-coord = Sy / Area (or Volume)
         return sums.static_moments.Sy / measure if abs(measure) > TOLERANCE.AREA_CALC else 0.0
 
     @computed_field
     @property
     def cy(self) -> float:
-        """Y-координата фінального центроїда (Sx_0 / Primary_Measure)."""
+        """
+        Y-coordinate of the final centroid (calculated from Sx_0 / Primary_Measure).
+        """
         sums = self.sums
         measure = self.primary_measure
+        # Centroid Y-coord = Sx / Area (or Volume)
         return sums.static_moments.Sx / measure if abs(measure) > TOLERANCE.AREA_CALC else 0.0
 
     @computed_field
     @property
     def cz(self) -> float:
-        """Z-координата фінального центроїда (Sz_0 / Primary_Measure)."""
+        """
+        Z-coordinate of the final centroid (calculated from Sz_0 / Primary_Measure).
+        For 2D cross-sections, this is typically 0.0.
+        """
         sums = self.sums
         measure = self.primary_measure
+        # Centroid Z-coord = Sz / Area (or Volume)
         return sums.static_moments.Sz / measure if abs(measure) > TOLERANCE.AREA_CALC else 0.0
