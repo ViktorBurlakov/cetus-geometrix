@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Callable
 
-from geometrix.geometry.core import GeometryObject
+from geometrix.geometry import GeometryObject
 
 
 class GeometrySpec(BaseModel):

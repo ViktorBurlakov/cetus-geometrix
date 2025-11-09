@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, computed_field, model_validator
 from geometrix.geometry.sections.factory import create_i_beam, create_c_channel, create_l_section, create_box_section
 from geometrix.geometry.spec import GeometrySpec
 
@@ -44,3 +44,27 @@ class RHSSpec(GeometrySpec):
 
     class Config:
         default_factory_func = create_box_section
+
+    @computed_field
+    @property
+    def b(self) -> float:
+        b = self.B - 2 * self.t
+        if b <= 0:
+            raise ValueError("Внутрішня ширина (b_inner) має бути позитивною. Перевірте B та t.")
+        return b
+
+    @computed_field
+    @property
+    def h(self) -> float:
+        h = self.H - 2 * self.t
+        if h <= 0:
+            raise ValueError("Внутрішня висота (h_inner) має бути позитивною. Перевірте H та t.")
+        return h
+
+    @model_validator(mode='after')
+    def validate_dimensions(self) -> 'RHSSpec':
+        if self.B - 2 * self.t <= 0:
+            raise ValueError("Зовнішня ширина (B) повинна бути більшою за подвоєну товщину стінки (2*t).")
+        if self.H - 2 * self.t <= 0:
+            raise ValueError("Зовнішня висота (H) повинна бути більшою за подвоєну товщину стінки (2*t).")
+        return self
